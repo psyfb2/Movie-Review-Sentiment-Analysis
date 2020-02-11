@@ -20,7 +20,8 @@ from keras.layers.convolutional import Conv1D
 from keras.layers.convolutional import MaxPooling1D
 from keras.layers.merge import concatenate
 
-DIRECTORY = "review_polarity/txt_sentoken"
+DIRECTORY = "data/review_polarity/txt_sentoken"
+PICKLE_DATA_DIRECTORY = "data"
 
 # return a string containing the whole document
 def load_movie_review(filename):
@@ -101,7 +102,8 @@ def third_percentile_length(lines):
     lengths.sort()
     return lengths[3 * (len(lengths) // 4)]
     
-
+# turn list of reviews into a matrix, where each review is a single row
+# also pads to a max length
 def encode_text(tokenizer, lines, length):
     # integer encode
     encoded = tokenizer.texts_to_sequences(lines)
@@ -137,12 +139,12 @@ def load_glove_embedding(glove_filename, tokenizer):
         if vec is not None:
             embedding_matrix[unique_index] = vec
     
-    return embedding_matrix
+    return embedding_matrix, dimensions
 
-def define_model(length, vocab_size, embedding_matrix):
+def define_model(length, vocab_size, embedding_matrix, embedding_dimension):
     # channel 1
     inputs1 = Input(shape=(length,))
-    embedding1 = Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=length, trainable=True)(inputs1)
+    embedding1 = Embedding(vocab_size, embedding_dimension, weights=[embedding_matrix], input_length=length, trainable=True)(inputs1)
     conv1 = Conv1D(filters=32, kernel_size=4, activation='relu')(embedding1)
     drop1 = Dropout(0.5)(conv1)
     pool1 = MaxPooling1D(pool_size=2)(drop1)
@@ -150,7 +152,7 @@ def define_model(length, vocab_size, embedding_matrix):
     
     # channel 2
     inputs2 = Input(shape=(length,))
-    embedding2 = Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=length, trainable=True)(inputs2)
+    embedding2 = Embedding(vocab_size, embedding_dimension, weights=[embedding_matrix], input_length=length, trainable=True)(inputs2)
     conv2 = Conv1D(filters=32, kernel_size=6, activation='relu')(embedding2)
     drop2 = Dropout(0.5)(conv2)
     pool2 = MaxPooling1D(pool_size=2)(drop2)
@@ -158,7 +160,7 @@ def define_model(length, vocab_size, embedding_matrix):
     
     # channel 3
     inputs3 = Input(shape=(length,))
-    embedding3 = Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=length, trainable=True)(inputs3)
+    embedding3 = Embedding(vocab_size, embedding_dimension, weights=[embedding_matrix], input_length=length, trainable=True)(inputs3)
     conv3 = Conv1D(filters=32, kernel_size=8, activation='relu')(embedding3)
     drop3 = Dropout(0.5)(conv3)
     pool3 = MaxPooling1D(pool_size=2)(drop3)
@@ -178,33 +180,34 @@ def define_model(length, vocab_size, embedding_matrix):
 
 def TRAIN(save_name):
     # load the training set
-    trainLines, trainLabels = load_object("train.pkl")
+    trainLines, trainLabels = load_object(PICKLE_DATA_DIRECTORY + "/all_data.pkl")
     
-    tokenizer = create_tokenizer(trainLines)
-    save_object(tokenizer, "tokenizer.pkl")
+    tokenizer = create_tokenizer(trainLines, count_thres=2)
+    save_object(tokenizer, PICKLE_DATA_DIRECTORY + "/tokenizer.pkl")
     
     vocab_size = len(tokenizer.word_index) + 1
-    length = max_length(trainLines)
-    save_object(length, "length.pkl")
+    length = third_percentile_length(trainLines)
+    save_object(length, PICKLE_DATA_DIRECTORY + "/length.pkl")
     
     trainX = encode_text(tokenizer, trainLines, length)
+    embedding_matrix, embedding_dimension = load_glove_embedding(PICKLE_DATA_DIRECTORY + "/glove.6B.300d.txt", tokenizer)
     
-    embedding_matrix = load_glove_embedding("glove.6B.300d.txt", tokenizer)
-    
-    model = define_model(length, vocab_size, embedding_matrix)
-    model.fit([trainX, trainX, trainX], trainLabels, epochs=7, batch_size=16, shuffle=True)
+    # have noticed that sometimes prone to getting stuck at local-optima
+    # if stuck at 50% accuracy for many epochs restart training
+    model = define_model(length, vocab_size, embedding_matrix, embedding_dimension)
+    model.fit([trainX, trainX, trainX], trainLabels, epochs=12, batch_size=16)
     model.save(save_name)
 
 def EVAL(load_name):
     # load the saved data sets
-    trainLines, trainLabels = load_object("train.pkl")
-    testLines, testLabels = load_object("test.pkl")
+    trainLines, trainLabels = load_object(PICKLE_DATA_DIRECTORY + "/train.pkl")
+    testLines, testLabels = load_object(PICKLE_DATA_DIRECTORY + "/test.pkl")
     
     # re-create the same tokenizer used for training
-    tokenizer = load_object("tokenizer.pkl")
+    tokenizer = load_object(PICKLE_DATA_DIRECTORY + "/tokenizer.pkl")
     
     # calculate the max document length for padding
-    length = load_object("length.pkl")
+    length = load_object(PICKLE_DATA_DIRECTORY + "/length.pkl")
     
     # encode the data to get [[unique indexes]] numpy array
     trainX = encode_text(tokenizer, trainLines, length)
@@ -212,35 +215,40 @@ def EVAL(load_name):
     model = load_model(load_name)
     _, acc = model.evaluate([trainX, trainX, trainX], trainLabels, verbose=0)
     print("Training accuracy: %.2f" % (acc * 100))
-    _, acc = model.evaluate([testX], testLabels, verbose=0)
+    _, acc = model.evaluate([testX, testX, testX], testLabels, verbose=0)
     print("Test accuracy: %.2f" % (acc * 100))
     
 def make_prediction(model, tokenizer, movie_review, length):
     # clean the movie review
     cleaned = clean_doc(movie_review)
-    encoded = encode_text(tokenizer, cleaned, length)
-    pred = model.predict(encoded, verbose=0)
+    encoded = encode_text(tokenizer, [cleaned], length)
+    pred = model.predict([encoded, encoded, encoded], verbose=0)
     
     # get the probability from sigmoid activation
     probability = pred[0, 0]
     if round(probability) == 0:
         return (1 - probability), 'NEGATIVE'
     return probability, 'POSITIVE'
+            
+    
+if __name__ == "__main__":
+    model_name = "model.k=4_6_8_f=32_alldata.h5"
+    
+    # change these (only need to train once)
+    predict = True
+    train = True
+    
+    if train:
+        TRAIN(model_name)
+        EVAL(model_name)
+
+    if predict:
+        # make prediction using pre-trained model
+        model = load_model(model_name)
+        tokenizer = load_object(PICKLE_DATA_DIRECTORY + "/tokenizer.pkl")
+        length = load_object(PICKLE_DATA_DIRECTORY + "/length.pkl")
+        # can load from this text file or just define as a string in program
+        movie_review = load_movie_review("my_movie_review.txt")
+        print(make_prediction(model, tokenizer, movie_review, length))
 
 
-model = load_model("model.kernels=4_6_8_filters=32.h5")
-tokenizer = load_object("tokenizer.pkl")
-length = load_object("length.pkl")
-movie_review = load_movie_review(DIRECTORY + "/neg/cv000_29416.txt")
-# clean the movie review
-cleaned = clean_doc(movie_review)
-encoded = encode_text(tokenizer, cleaned, length)
-pred = model.predict([np.array(encoded), np.array(encoded), np.array(encoded)], verbose=0)
-
-# get the probability from sigmoid activation
-probability = pred[0, 0]
-if round(probability) == 0:
-    print( (1 - probability), 'NEGATIVE')
-else:
-    print(probability, 'POSITIVE')
-#print(make_prediction(model, tokenizer, movie_review, length))

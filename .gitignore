@@ -129,6 +129,6 @@ dmypy.json
 .pyre/
 
 # dataset and model
-/review_polarity/*
+/data/review_polarity/*
 glove*.txt
 *.h5
