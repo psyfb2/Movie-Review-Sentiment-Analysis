@@ -180,7 +180,7 @@ def define_model(length, vocab_size, embedding_matrix, embedding_dimension):
 
 def TRAIN(save_name):
     # load the training set
-    trainLines, trainLabels = load_object(PICKLE_DATA_DIRECTORY + "/all_data.pkl")
+    trainLines, trainLabels = load_object(PICKLE_DATA_DIRECTORY + "/train.pkl")
     
     tokenizer = create_tokenizer(trainLines, count_thres=2)
     save_object(tokenizer, PICKLE_DATA_DIRECTORY + "/tokenizer.pkl")
