@@ -7,7 +7,7 @@ To train the model and run predictions on ad-hoc reviews:
 4. Evaluate model using EVAL function
 5. Make ad-hoc predictions on new movie reviews using make_prediction function. You can find plenty of movie reviews on https://www.rottentomatoes.com/critics/latest_reviews or simply make up your own!
 
-Training Accuracy: 100%
+Training Accuracy: 100%  
 Test Accuracy: 85%
 
 
