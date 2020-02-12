@@ -1,4 +1,4 @@
-''' Copyright (C) 2020 Fady Benattayallah '''
+''' By Fady Benattayallah '''
 import string
 import re
 import numpy as np
